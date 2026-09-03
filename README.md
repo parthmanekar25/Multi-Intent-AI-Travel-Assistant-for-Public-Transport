@@ -1,31 +1,108 @@
-# Multi-Intent-AI-Travel-Assistant-for-Public-Transport
-#  Singapore Transport Agent
-**Author:** Parth Manekar  
+# Singapore Transport Agent
 
+Modular **LangGraph** assistant for Singapore public transport. Replaces the original notebook with a package, FastAPI gateway, CLI, caching, and conditional tool routing.
 
-##  Project Overview
-This notebook implements an agentic workflow using **LangGraph** to answer user queries regarding Singapore's public transport. The agent is designed to be **context-aware**, factoring in real-time variables such as weather, traffic incidents, and peak-hour logic before generating a response.
+**Author:** Parth Manekar
 
-##  Workflow Architecture
-The solution uses a state-based graph architecture (`StateGraph`) to orchestrate the flow of data.
-1.  **Intent Extraction:** A generic LLM (via Groq) analyzes the user's natural language query to classify intent (e.g., `bus_arrival`, `weather`, `traffic_area`) and extract entities (e.g., Bus Stop Codes).
-2.  **Context Enrichment:** Before hitting the transport API, the state is enriched with environmental constraints:
-    * **Time Context:** Determines if it is currently Peak/Off-Peak.
-    * **Weather (Data.gov.sg):** Checks for rain to add travel advisories.
-    * **Traffic (LTA):** Checks for congestion or accidents.
-    * **Disruptions:** Checks MRT status.
-3.  **Dynamic Routing:** Based on the intent, the agent routes to specific handlers (e.g., querying LTA DataMall for bus timings or filtering traffic incidents by location).
-4.  **Response Generation:** A final node synthesizes the API data, environmental context, and user query into a natural language response.
+## Features
 
-##  Design Decisions & Assumptions
-* **LangGraph over Chains:** Chosen for its cyclic and stateful nature, allowing for easier debugging and future expansion (e.g., adding a "correction" node if an API fails).
-* **Deterministic Intent:** To reduce latency and token costs, I used the LLM *only* for intent extraction and final formatting. The core logic (Time/API fetching) is handled by deterministic Python functions.
-* **Assumption:** The agent assumes the user is currently in Singapore (GMT+8) for time calculations.
-* **Assumption:** "Next Bus" queries imply the immediate next arrival; however, the API returns up to 3 upcoming buses, which are processed to find the nearest one.
+- Intent extraction via Groq (structured JSON)
+- Selective context enrichment (time/peak, holidays, weather, traffic, MRT alerts)
+- Conditional LangGraph routing to dedicated tool handlers
+- Bus stop name/code resolution (`BusStops`)
+- Cached LTA DataMall + Data.gov.sg calls
+- Asia/Singapore timezone and 2025–2026 holiday calendars
+- Humanized crowding labels and next 3 arrivals
+- FastAPI `POST /chat` + CLI simulation
 
-##  Deployment Strategy (Production)
-To move this from a notebook to a production environment:
-1.  **API Gateway (FastAPI):** Expose the `graph.invoke` method via a RESTful endpoint (e.g., `POST /chat`).
-2.  **Caching (Redis):** LTA DataMall APIs have rate limits. I would implement a Redis cache (TTL: 1 min for Bus Arrival, 15 mins for Traffic) to serve frequent requests for the same bus stop without hitting the LTA origin server.
-3.  **Async/Queues:** For high concurrency, API calls should be asynchronous (`aiohttp`). Long-running queries could be offloaded to a task queue (Celery/RabbitMQ).
-4.  **Containerization:** Dockerize the application to ensure consistency across dev and prod environments.
+## Project layout
+
+```text
+singapore_transport/
+  agent.py          # TransportAgent.ask()
+  api.py            # FastAPI app
+  config.py         # env-based settings
+  graph.py          # StateGraph + conditional edges
+  state.py          # TransportState
+  llm/              # Groq client
+  nodes/            # intent, context, handlers, response
+  tools/            # LTA + weather tools
+  utils/            # time, holidays, crowding, cache
+scripts/simulate.py
+tests/
+```
+
+## Setup
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+cp .env.example .env
+# set GROQ_API_KEY and LTA_API_KEY
+```
+
+## Run
+
+CLI single query:
+
+```bash
+python -m scripts.simulate "When is bus 176 arriving at stop 20251?"
+```
+
+10-user simulation (lower delay thanks to caching):
+
+```bash
+python -m scripts.simulate --simulate --delay 2
+```
+
+API server:
+
+```bash
+uvicorn singapore_transport.api:app --reload --port 8000
+# POST http://localhost:8000/chat  {"query": "Is it raining?"}
+```
+
+Tests (no live keys required):
+
+```bash
+pytest -q
+```
+
+## Architecture
+
+```text
+START → intent → context (selective) → conditional route
+   ├─ bus_arrival
+   ├─ bus_info / bus_frequency
+   ├─ traffic_area
+   ├─ weather_only
+   ├─ train_disruption
+   ├─ nearest_stop
+   ├─ general_help / fallback
+   └─→ answer → END
+```
+
+Deterministic Python tools handle APIs; the LLM is used for intent/entity extraction only.
+
+## Design notes
+
+- All clocks use `Asia/Singapore` (`zoneinfo`).
+- Static catalogues (`BusServices`, `BusStops`) are cached ~24h; live arrivals ~60s.
+- Train alerts parse nested LTA `value[0].Status` correctly (1=normal, 2=disrupted).
+- Weather sets `severity` (`Low` / `Moderate` / `High`) for advisories.
+
+## Extending with more tools
+
+1. Add a fetcher under `singapore_transport/tools/` (e.g. `carpark.py`).
+2. Register intent in `state.VALID_INTENTS` + prompt in `nodes/intent.py`.
+3. Declare context needs in `nodes/context.INTENT_CONTEXT_NEEDS`.
+4. Add a handler in `nodes/handlers.py` and wire it in `graph.py`.
+5. Format output in `nodes/response.py`.
+
+Good next tools: `BusRoutes`, carpark availability, ERP rates, OneMap geocoding, journey planning.
+
+## Legacy notebook
+
+`travel_agent .ipynb` is kept for reference. Prefer the package above for all new work.
