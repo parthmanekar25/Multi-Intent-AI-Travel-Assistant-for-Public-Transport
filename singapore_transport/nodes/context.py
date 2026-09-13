@@ -21,6 +21,8 @@ INTENT_CONTEXT_NEEDS: dict[str, set[str]] = {
     "bus_arrival": {"time", "holiday", "weather", "traffic", "bus_service", "stop"},
     "bus_info": {"time", "holiday", "bus_service"},
     "bus_frequency": {"time", "holiday", "bus_service"},
+    "bus_route": {"stop"},
+    "carpark": set(),
     "traffic_area": {"time", "weather", "traffic"},
     "weather_only": {"weather"},
     "train_disruption": {"weather", "traffic", "disruption"},

@@ -41,6 +41,10 @@ class LTAClient:
         url = f"{self.base_url}/{path.lstrip('/')}"
 
         def _fetch() -> dict[str, Any]:
+            if not self.api_key:
+                return {
+                    "error": "LTA_API_KEY is not set. Copy .env.example to .env and add your AccountKey."
+                }
             try:
                 response = requests.get(
                     url,

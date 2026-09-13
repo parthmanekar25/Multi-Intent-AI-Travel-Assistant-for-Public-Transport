@@ -11,7 +11,7 @@ from singapore_transport.tools.lta_client import get_lta_client
 _STOP_CODE_RE = re.compile(r"^\d{5}$")
 
 
-def _all_stops() -> list[dict[str, Any]]:
+def get_all_stops() -> list[dict[str, Any]]:
     settings = get_settings()
     client = get_lta_client()
     return client.get_paginated(
@@ -19,6 +19,31 @@ def _all_stops() -> list[dict[str, Any]]:
         cache_name="bus_stops_all",
         ttl=settings.bus_stops_cache_ttl_seconds,
     )
+
+
+# Back-compat alias used by older call sites
+_all_stops = get_all_stops
+
+
+def lookup_stop_label(bus_stop_code: str | None) -> str:
+    """Return 'CODE — Description (Road)' when possible, else the raw code."""
+    code = (bus_stop_code or "").strip()
+    if not code:
+        return "Unknown"
+    try:
+        resolved = resolve_bus_stop(bus_stop_code=code)
+        matched = resolved.get("matched") or []
+        if matched:
+            stop = matched[0]
+            desc = stop.get("Description") or ""
+            road = stop.get("RoadName") or ""
+            if desc and road:
+                return f"{code} — {desc} ({road})"
+            if desc:
+                return f"{code} — {desc}"
+    except Exception:  # noqa: BLE001
+        pass
+    return code
 
 
 def resolve_bus_stop(
@@ -71,7 +96,6 @@ def resolve_bus_stop(
         elif query_l in hay:
             score = 80 if query_l in desc.lower() else 60
         else:
-            # token overlap
             tokens = [t for t in re.split(r"\W+", query_l) if t]
             if tokens and all(t in hay for t in tokens):
                 score = 50

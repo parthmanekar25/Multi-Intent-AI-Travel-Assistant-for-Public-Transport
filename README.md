@@ -93,6 +93,26 @@ Deterministic Python tools handle APIs; the LLM is used for intent/entity extrac
 - Train alerts parse nested LTA `value[0].Status` correctly (1=normal, 2=disrupted).
 - Weather sets `severity` (`Low` / `Moderate` / `High`) for advisories.
 
+
+
+## New capabilities (v0.3)
+
+- **Bus route tool** — "Does bus 36 stop at Orchard?" / route previews via LTA `BusRoutes`
+- **Carpark tool** — "Parking near HarbourFront?" via LTA `CarParkAvailability`
+- **Stop labels** — bus info shows human stop names, not just Origin/Destination codes
+- **Tool registry** — `GET /tools` lists registered tools and intents
+- **Session memory** — pass `session_id` to `POST /chat` so follow-ups reuse bus/stop/location entities
+- **Legacy notebook** — moved to `legacy/travel_agent.ipynb` (reference only)
+
+### Example session follow-up
+
+```bash
+curl -s localhost:8000/chat -H 'content-type: application/json' \
+  -d '{"query":"When is bus 176 at 20251?","session_id":"u1"}'
+curl -s localhost:8000/chat -H 'content-type: application/json' \
+  -d '{"query":"What is its frequency?","session_id":"u1"}'
+```
+
 ## Extending with more tools
 
 1. Add a fetcher under `singapore_transport/tools/` (e.g. `carpark.py`).

@@ -12,6 +12,8 @@ from singapore_transport.nodes import (
     final_response_node,
     handle_bus_arrival,
     handle_bus_info,
+    handle_bus_route,
+    handle_carpark,
     handle_fallback,
     handle_help,
     handle_nearest_stop,
@@ -24,6 +26,8 @@ from singapore_transport.state import TransportState
 IntentRoute = Literal[
     "bus_arrival",
     "bus_info",
+    "bus_route",
+    "carpark",
     "traffic_area",
     "weather_only",
     "train_disruption",
@@ -39,6 +43,10 @@ def route_by_intent(state: TransportState) -> IntentRoute:
         return "bus_info"
     if intent == "bus_arrival":
         return "bus_arrival"
+    if intent == "bus_route":
+        return "bus_route"
+    if intent == "carpark":
+        return "carpark"
     if intent == "traffic_area":
         return "traffic_area"
     if intent == "weather_only":
@@ -59,6 +67,8 @@ def build_graph():
     graph.add_node("context", enrich_context)
     graph.add_node("bus_arrival", handle_bus_arrival)
     graph.add_node("bus_info", handle_bus_info)
+    graph.add_node("bus_route", handle_bus_route)
+    graph.add_node("carpark", handle_carpark)
     graph.add_node("traffic_area", handle_traffic)
     graph.add_node("weather_only", handle_weather)
     graph.add_node("train_disruption", handle_train)
@@ -75,6 +85,8 @@ def build_graph():
         {
             "bus_arrival": "bus_arrival",
             "bus_info": "bus_info",
+            "bus_route": "bus_route",
+            "carpark": "carpark",
             "traffic_area": "traffic_area",
             "weather_only": "weather_only",
             "train_disruption": "train_disruption",
@@ -87,6 +99,8 @@ def build_graph():
     for node in (
         "bus_arrival",
         "bus_info",
+        "bus_route",
+        "carpark",
         "traffic_area",
         "weather_only",
         "train_disruption",

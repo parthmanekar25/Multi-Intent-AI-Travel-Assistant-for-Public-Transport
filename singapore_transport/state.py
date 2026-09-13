@@ -19,6 +19,8 @@ class TransportState(TypedDict, total=False):
     api_response: Optional[Dict[str, Any]]
     errors: List[str]
     final_answer: Optional[str]
+    # Optional session continuity (filled by TransportAgent, not the graph)
+    session_id: Optional[str]
 
 
 VALID_INTENTS = frozenset(
@@ -26,6 +28,8 @@ VALID_INTENTS = frozenset(
         "bus_arrival",
         "bus_info",
         "bus_frequency",
+        "bus_route",
+        "carpark",
         "traffic_area",
         "weather_only",
         "train_disruption",

@@ -6,6 +6,9 @@ from typing import Any
 
 from singapore_transport.state import TransportState
 from singapore_transport.tools.bus_arrival import fetch_bus_arrival, summarize_services
+from singapore_transport.tools.bus_routes import service_serves_stop
+from singapore_transport.tools.bus_stops import get_all_stops, lookup_stop_label
+from singapore_transport.tools.carpark import fetch_carparks
 from singapore_transport.tools.traffic import filter_incidents_by_location
 from singapore_transport.tools.train_alerts import filter_by_line
 
@@ -44,13 +47,52 @@ def handle_bus_arrival(state: TransportState) -> dict[str, Any]:
 def handle_bus_info(state: TransportState) -> dict[str, Any]:
     service = state.get("bus_service_info")
     entities = state.get("entities") or {}
+    enriched = service
+    if isinstance(service, dict):
+        enriched = dict(service)
+        origin = service.get("OriginCode")
+        dest = service.get("DestinationCode")
+        enriched["origin_label"] = lookup_stop_label(str(origin) if origin else None)
+        enriched["destination_label"] = lookup_stop_label(str(dest) if dest else None)
     return {
         "api_response": {
             "type": "bus_info",
-            "service": service,
+            "service": enriched,
             "requested": entities.get("bus_number"),
         }
     }
+
+
+def handle_bus_route(state: TransportState) -> dict[str, Any]:
+    entities = state.get("entities") or {}
+    resolved = state.get("resolved_stop") or {}
+    matched = resolved.get("matched") or []
+    bus_no = entities.get("bus_number")
+    stop_code = entities.get("bus_stop_code")
+    if not stop_code and matched:
+        stop_code = matched[0].get("BusStopCode")
+
+    catalogue = None
+    # Only load catalogue when matching by location name (not by exact code)
+    if entities.get("location") and not stop_code:
+        try:
+            catalogue = get_all_stops()
+        except Exception:  # noqa: BLE001
+            catalogue = None
+
+    result = service_serves_stop(
+        bus_no,
+        bus_stop_code=str(stop_code) if stop_code else None,
+        location=entities.get("location"),
+        stop_catalogue=catalogue,
+    )
+    return {"api_response": {"type": "bus_route", **result}}
+
+
+def handle_carpark(state: TransportState) -> dict[str, Any]:
+    entities = state.get("entities") or {}
+    result = fetch_carparks(entities.get("location"))
+    return {"api_response": {"type": "carpark", **result}}
 
 
 def handle_traffic(state: TransportState) -> dict[str, Any]:

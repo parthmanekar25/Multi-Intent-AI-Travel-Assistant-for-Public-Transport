@@ -45,10 +45,18 @@ def final_response_node(state: TransportState) -> dict[str, Any]:
     weather_alert = _weather_alert(weather)
     peak_note = _peak_note(time_ctx, holiday)
 
+    # Prefer enriched service payload from handlers when present
+    if isinstance(api_response.get("service"), dict):
+        service = api_response["service"]
+
     if intent == "bus_arrival":
         response_text = _format_bus_arrival(api_response, weather_alert, peak_note)
     elif intent in {"bus_info", "bus_frequency"}:
         response_text = _format_bus_info(service, entities, time_ctx, holiday) + peak_note
+    elif intent == "bus_route":
+        response_text = _format_bus_route(api_response, entities)
+    elif intent == "carpark":
+        response_text = _format_carpark(api_response, entities)
     elif intent == "traffic_area":
         response_text = _format_traffic(api_response, traffic, entities) + weather_alert
     elif intent == "weather_only":
@@ -64,6 +72,8 @@ def final_response_node(state: TransportState) -> dict[str, Any]:
             '- **Bus Arrivals:** "When is bus 176 arriving at 20251?"\n'
             '- **Stop lookup:** "Bus stops near Orchard Road"\n'
             '- **Bus Info:** "Frequency of bus 107M?"\n'
+            '- **Bus Route:** "Does bus 36 stop at Orchard?"\n'
+            '- **Carpark:** "Parking near HarbourFront?"\n'
             '- **Traffic:** "Any jams at Orchard?"\n'
             '- **Weather:** "Is it raining?"\n'
             '- **MRT:** "Any disruptions on the NEL?"'
@@ -71,7 +81,7 @@ def final_response_node(state: TransportState) -> dict[str, Any]:
     else:
         response_text = (
             "Sorry, I didn't quite catch that. "
-            "Try asking about a bus, stop code/name, traffic area, weather, or MRT line."
+            "Try asking about a bus, stop code/name, carpark, traffic area, weather, or MRT line."
         )
 
     return {"final_answer": response_text}
@@ -139,11 +149,14 @@ def _format_bus_info(service: Any, entities: dict, time_ctx: dict, holiday: dict
             focus = service.get("PM_Peak_Freq")
             focus_label = "PM Peak"
 
+        origin = service.get("origin_label") or service.get("OriginCode")
+        destination = service.get("destination_label") or service.get("DestinationCode")
+
         return (
             f"Here's the info for Bus Service {service.get('ServiceNo')}:\n\n"
             f"## Service {service.get('ServiceNo')} Details\n\n"
-            f"**Origin stop:** {service.get('OriginCode')}\n"
-            f"**Destination stop:** {service.get('DestinationCode')}\n"
+            f"**Origin stop:** {origin}\n"
+            f"**Destination stop:** {destination}\n"
             f"**Operator:** {service.get('Operator', 'Unknown')}\n"
             f"**Category:** {service.get('Category', 'Unknown')}\n\n"
             f"### Frequency\n"
@@ -155,6 +168,69 @@ def _format_bus_info(service: Any, entities: dict, time_ctx: dict, holiday: dict
         )
     requested = entities.get("bus_number") or "that service"
     return f"I couldn't find specific details for bus {requested}."
+
+
+def _format_bus_route(api_response: dict, entities: dict) -> str:
+    service = api_response.get("service") or entities.get("bus_number") or "that bus"
+    query = api_response.get("query")
+    matches = api_response.get("matches") or []
+    if api_response.get("error"):
+        return f"I couldn't look up the route for bus {service}: {api_response['error']}"
+
+    if api_response.get("preview"):
+        lines = []
+        for row in matches[:12]:
+            code = row.get("BusStopCode")
+            road = row.get("RoadName") or row.get("Description") or ""
+            seq = row.get("StopSequence")
+            lines.append(f"- #{seq}: {code} {f'({road})' if road else ''}".rstrip())
+        total = api_response.get("total_stops", len(matches))
+        return (
+            f"## Bus {service} route preview\n\n"
+            f"Showing first {len(lines)} of {total} stops:\n"
+            + ("\n".join(lines) if lines else "No stops found.")
+        )
+
+    if not api_response.get("serves"):
+        where = query or entities.get("location") or entities.get("bus_stop_code") or "that stop"
+        return f"Bus {service} does not appear to serve {where}."
+
+    lines = []
+    for row in matches[:10]:
+        code = row.get("BusStopCode")
+        desc = row.get("Description") or ""
+        road = row.get("RoadName") or ""
+        seq = row.get("StopSequence")
+        label = " — ".join(p for p in [str(code), desc, road] if p)
+        lines.append(f"- Stop #{seq}: {label}")
+    where = query or "the requested stop/area"
+    return (
+        f"## Bus {service} serves {where}\n\n"
+        + ("\n".join(lines) if lines else "Matched, but no stop details were returned.")
+    )
+
+
+def _format_carpark(api_response: dict, entities: dict) -> str:
+    if api_response.get("error"):
+        return f"I couldn't fetch car park data: {api_response['error']}"
+    query = api_response.get("query") or entities.get("location") or "Singapore"
+    carparks = api_response.get("carparks") or []
+    if not carparks:
+        return f"No car parks matched '{query}'."
+    lines = []
+    for cp in carparks[:8]:
+        name = cp.get("Development") or cp.get("CarParkID") or "Car park"
+        area = cp.get("Area") or ""
+        lots = cp.get("AvailableLots")
+        lot_type = cp.get("LotType") or ""
+        lines.append(
+            f"- **{name}**"
+            + (f" ({area})" if area else "")
+            + f": {lots} lots"
+            + (f" [{lot_type}]" if lot_type else "")
+        )
+    total = api_response.get("total_matched", len(carparks))
+    return f"## Car parks near {query}\n\n" + "\n".join(lines) + f"\n\n_{total} matches_"
 
 
 def _format_traffic(api_response: dict, traffic: dict, entities: dict) -> str:
